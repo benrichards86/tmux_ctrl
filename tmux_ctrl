@@ -1,0 +1,975 @@
+#!/usr/local/bin/perl -w
+# Displays a window allowing GUI control of tmux sessions.
+# Written by Benjamin Richards, 2015
+
+use Tk;
+require Tk::LabFrame;
+require Tk::Tree;
+require Tk::ItemStyle;
+require Tk::Font;
+
+use strict;
+
+
+########################################################################################
+###### Globals
+
+my $debug_mode = 0;  # Set to 1 to enable printing of tmux output
+
+my $refresh_int_min = 1;  # Indicates the interval at which to automatically refresh the sessions list, in minutes.
+
+my $sessions_fmt = 'name=#S,windows=#{session_windows},created=#{session_created_string},width=#{session_width},height=#{session_height},attached=#{session_attached}';
+my $windows_fmt = 'name=#{window_name},index=#I,panes=#{window_panes},bell=#{window_bell_flag},active=#{window_active}';
+my $panes_fmt = 'index=#P,title=#T,active=#{pane_active},dead=#{pane_dead}';
+my $clients_fmt = 'tty=#{client_tty}';
+
+my $selected_session;  # Indicates which session is selected.
+my $combo_selection;  # Indicates which window/pane is selected in the combo box.
+
+my $tw_tree;  # Combined list object for windows/panes.
+my $status_label;  # Label in status bar with timestamp of last update.
+
+my $toggle_buttons;  # Points to method that will set state of buttons next to list according to what's selected.
+
+my $tmux_path = `which tmux`;
+if ($? != 0) {
+  print STDERR "tmux not found! Make sure you have it installed and that it is visible in your path.\n";
+  exit 1;
+}
+else {
+  chomp $tmux_path;
+  print "tmux found in: $tmux_path\n";
+}
+
+########################################################################################
+###### Pixmap image data
+my $refresh_image_data = <<EOF;
+/* XPM */
+static char * refresh_xpm[] = {
+/* width height num_colors chars_per_pixel */
+"20 20 3 1",
+/* colors */
+"_ c none", 
+"+ c #000000", 
+"# c #7F7F7F", 
+/* pixels */
+"____________________", 
+"____________________", 
+"_____#++++++#_______", 
+"____+++####+++___#__", 
+"___+++_______++_#+__", 
+"__#++_________++++__", 
+"__++_________#++++__", 
+"__++________#+++++__", 
+"__++________________", 
+"__+#________________", 
+"________________#+__", 
+"________________++__", 
+"__+++++#________++__", 
+"__++++#_________++__", 
+"__++++_________++#__", 
+"__+#_++_______+++___", 
+"__#___+++####+++____", 
+"_______#++++++#_____", 
+"____________________", 
+"____________________"}; 
+EOF
+
+my $up_image_data = <<EOF;
+/* XPM */
+static char * up_xpm[] {
+/* width height num_colors chars_per_pixel */
+"20 20 3 1",
+/* colors */
+"_ c none",
+"+ c #000000",
+"# c #7F7F7F",
+/* pixels */
+"____________________",
+"_________##_________",
+"_________++_________",
+"________#++#________",
+"________++++________",
+"_______#++++#_______",
+"_______++++++_______",
+"______#++++++#______",
+"______++++++++______",
+"_____#++++++++#_____",
+"_____++++++++++_____",
+"____#++++++++++#____",
+"____++++++++++++____",
+"___#++++++++++++#___",
+"___++++++++++++++___",
+"__#++++++++++++++#__",
+"__++++++++++++++++__",
+"_#++++++++++++++++#_",
+"_++++++++++++++++++_",
+"____________________"};
+EOF
+
+my $down_image_data = <<EOF;
+/* XPM */
+static char * down_xpm[] {
+/* width height num_colors chars_per_pixel */
+"20 20 3 1",
+/* colors */
+"_ c none",
+"+ c #000000",
+"# c #7F7F7F",
+/* pixels */
+"____________________",
+"_++++++++++++++++++_",
+"_#++++++++++++++++#_",
+"__++++++++++++++++__",
+"__#++++++++++++++#__",
+"___++++++++++++++___",
+"___#++++++++++++#___",
+"____++++++++++++____",
+"____#++++++++++#____",
+"_____++++++++++_____",
+"_____#++++++++#_____",
+"______++++++++______",
+"______#++++++#______",
+"_______++++++_______",
+"_______#++++#_______",
+"________++++________",
+"________#++#________",
+"_________++_________",
+"_________##_________",
+"____________________"};
+EOF
+
+my $create_image_data = <<EOF;
+/* XPM */
+static char * create_xpm[] {
+/* width height num_colors chars_per_pixel */
+"20 20 2 1",
+/* colors */
+"_ c none",
+"+ c #000000",
+/* pixels */
+"____________________",
+"________++++________",
+"________++++________",
+"________++++________",
+"________++++________",
+"________++++________",
+"________++++________",
+"________++++________",
+"_++++++++++++++++++_",
+"_++++++++++++++++++_",
+"_++++++++++++++++++_",
+"_++++++++++++++++++_",
+"________++++________",
+"________++++________",
+"________++++________",
+"________++++________",
+"________++++________",
+"________++++________",
+"________++++________",
+"____________________"};
+EOF
+
+my $del_image_data = <<EOF;
+/* XPM */
+static char * del_xpm[] {
+/* width height num_colors chars_per_pixel */
+"20 20 2 1",
+/* colors */
+"_ c none",
+"+ c #000000",
+/* pixels */
+"____________________",
+"____________________",
+"____________________",
+"____________________",
+"____________________",
+"____________________",
+"____________________",
+"____________________",
+"_++++++++++++++++++_",
+"_++++++++++++++++++_",
+"_++++++++++++++++++_",
+"_++++++++++++++++++_",
+"____________________",
+"____________________",
+"____________________",
+"____________________",
+"____________________",
+"____________________",
+"____________________",
+"____________________"};
+EOF
+
+
+my $split_image_data = <<EOF;
+/* XPM */
+static char * split_xpm[] {
+/* width height num_colors chars_per_pixel */
+"20 20 3 1",
+/* colors */
+"_ c none",
+"+ c #000000",
+"# c #7F7F7F",
+/* pixels */
+"____________________",
+"____+++#____________",
+"____#+++____________",
+"_____+++#___________",
+"_____#+++___________",
+"______+++#__________",
+"______#+++__________",
+"_______+++#_________",
+"_+++++_#+++___#++++_",
+"__#+++#_+++#_#+++#__",
+"__#+++#_#+++_#+++#__",
+"_+++++___+++#_#++++_",
+"_________#+++_______",
+"__________+++#______",
+"__________#+++______",
+"___________+++#_____",
+"___________#+++_____",
+"____________+++#____",
+"____________#+++____",
+"____________________"};
+EOF
+
+
+my $display_image_data = <<EOF;
+/* XPM */
+static char * display_xpm[] {
+/* width height num_colors chars_per_pixel */
+"20 20 3 1",
+/* colors */
+"_ c none",
+"+ c #000000",
+"# c #7F7F7F",
+/* pixels */
+"____________________",
+"____________________",
+"____________________",
+"____________________",
+"_______#+++#________",
+"_____#+++++++#______",
+"____#++++++++++#____",
+"___+++++#####++++#__",
+"__+++#__#+++____#+#_",
+"_##___#++++++#______",
+"______++++++++______",
+"_____#++++++++#_____",
+"_____#++++++++#_____",
+"_____#++++++++#_____",
+"______++++++++______",
+"_______++++++#______",
+"________#++#________",
+"____________________",
+"____________________",
+"____________________"};
+EOF
+
+
+########################################################################################
+### send_to_tmux
+# Sends command input to tmux. Retains DISPLAY variable setting as attaching from
+# a different display will change the value in all sessions.
+# Parameters:
+#   input   A list of commands to tmux separated by newlines.
+sub send_to_tmux( @ ) {
+  my $input = join("\n", @_);
+
+  my $display = `tmux show-environment -t $selected_session DISPLAY`;
+  $display =~ s/DISPLAY=//;
+
+  if (open(TMUX, "|-", "TMUX= ;tmux -C attach-session -t '\$$selected_session'")) {
+    print TMUX "set-environment DISPLAY $display\n";
+    print TMUX "$input\n";
+    print TMUX "detach-client\n";
+    close(TMUX);
+  }
+  return $?;
+}
+
+########################################################################################
+### send_to_tmux_no_attach
+# Sends command input to tmux without attaching to the session.
+# Parameters:
+#   input   A single command to send to tmux.
+#   target  An optional target.
+sub send_to_tmux_no_attach( $;$ ) {
+  my ($input, $target) = @_;
+  my $target_str = "";
+  if (defined $target) {
+    $target_str = "-t '$target'";
+  }
+
+  system("TMUX= ;tmux $input $target_str");
+  return $?;
+}
+
+### init
+# Initializes the list of tmux sessions
+# Parameters:
+#   Callback that gets run after sessions list is generated.
+sub init_sessions( $ ) {
+  # Get callback
+  my ($callback) = @_;
+
+  # Build tmux session list
+  my @sessions_raw = split("\n", `tmux list-sessions -F '$sessions_fmt'`);
+
+  # Indexed by session name, returns a map of variables describing each session
+  my %session_list;
+
+  foreach my $csess (@sessions_raw) {
+    my @data = split ',', $csess;
+    my %sess_vars;
+    foreach my $cdat (@data) {
+      my @var = split '=', $cdat;
+      $sess_vars{$var[0]} = $var[1];
+    }
+    $session_list{$sess_vars{'name'}} = \%sess_vars;
+  }
+
+  # Builds a list of options that can be used by Optionmenu. Selection indicated by session name.
+  my @session_options = ();
+  foreach my $currkey (keys %session_list) {
+    my %curr = %{$session_list{$currkey}};
+    my $name = "$curr{name}: $curr{windows} windows (created $curr{created}) [$curr{width}x$curr{height}]";
+    if ($curr{'attached'} == 1) {
+      $name = $name." (attached)";
+    }
+    push(@session_options, [$name=>$currkey]);
+  }
+
+  # Sort by name, ascending.
+  my @sorted = sort {${$a}[1] <=> ${$b}[1]} @session_options;
+
+  # Callback
+  &$callback(\@sorted);
+
+  return @sorted;
+}
+
+
+### get_windows
+# Gets the windows for the selected session and returns in a list.
+sub get_windows( $ ) {
+  my ($session) = @_;
+
+  my @final_window_list = ();
+  if (defined $selected_session) {
+    my @windows = split("\n", `tmux list-windows -t '${selected_session}' -F '$windows_fmt'`);
+    foreach my $cwin (@windows) {
+      my @data = split ',', $cwin;
+      my %win_vars;
+      foreach my $cdat (@data) {
+        my @var = split '=', $cdat;
+        $win_vars{$var[0]} = $var[1];
+      }
+      push @final_window_list, \%win_vars;
+    }
+  }
+  return @final_window_list;
+}
+
+### get_panes
+# Gets the panes for the selected window and session and returns in a list.
+sub get_panes( $$ ) {
+  my ($session, $window) = @_;
+  
+  my @final_pane_list = ();
+  my @panes = split("\n", `tmux list-panes -F '$panes_fmt' -t '\$$session:$window'`);
+  foreach my $cpane (@panes) {
+    my @data = split ',', $cpane;
+    my %pane_vars;
+    foreach my $cpane (@data) {
+      my @var = split '=', $cpane;
+      $pane_vars{$var[0]} = $var[1];
+    }
+    push @final_pane_list, \%pane_vars;
+  }
+
+  return @final_pane_list;
+}
+
+### get_clients
+# Gets the clients for the currently selected session and returns in a list.
+sub get_clients( $ ) {
+  my ($session) = @_;
+
+  my @final_client_list = ();
+  if (defined $session) {
+    my @clients = split("\n", `tmux list-clients -F '${clients_fmt}' -t '${session}'`);
+    foreach my $cclient (@clients) {
+      my @data = split ',', $cclient;
+      my %client_vars;
+      foreach my $cdat (@data) {
+        my @var = split '=', $cdat;
+        $client_vars{$var[0]} = $var[1];
+      }
+      push @final_client_list, \%client_vars;
+    }
+  }
+
+  return @final_client_list;
+}
+
+### stringify_window
+# Returns a string name for a window described by the hash reference provided.
+sub stringify_window( $ ) {
+  my %window = %{$_[0]};
+
+  my $name = "$window{name}: $window{panes} panes";
+  if ($window{'bell'} == 1) {
+    $name = $name." (!)";
+  }
+  if ($window{'active'} == 1) {
+    return $name." (active)";
+  }
+  else {
+    return $name;
+  }
+}
+
+### stringify_pane
+# Returns a string name for a pane described by the hash reference provided.
+sub stringify_pane( $ ) {
+  my %pane = %{$_[0]};
+
+  my $name = "$pane{index}: $pane{title}";
+  if ($pane{'dead'} == 1) {
+    $name = $name." [dead]";
+  }
+  if ($pane{'active'} == 1) {
+    return $name." *";
+  }
+  else {
+    return $name;
+  }
+}
+
+### populate_combined_list
+# Populates the combined windows/panes hierarchical list
+# Parameters:
+#   tree_obj:    Combined list object for windows/panes.
+#   session:     Session to query for windows and panes.
+sub populate_combined_list( $$ ) {
+  my ($tree_obj, $session) = @_;
+
+  my $orig_font = ${${$tree_obj}->configure('-font')}[4];
+
+  my $normal_font = $orig_font->Clone(-weight => 'normal', -slant => 'roman');
+  my $ital_font = $orig_font->Clone(-weight => 'normal', -slant => 'italic');
+  my $bold_font = $orig_font->Clone(-weight => 'bold', -slant => 'roman');
+
+  my $inactive_window = ${$tree_obj}->ItemStyle('imagetext', -font => $normal_font);
+  my $active_window = ${$tree_obj}->ItemStyle('imagetext', -font => $bold_font);
+  my $inactive_pane = ${$tree_obj}->ItemStyle('imagetext', -font => $normal_font);
+  my $active_pane = ${$tree_obj}->ItemStyle('imagetext', -font => $ital_font);
+  my $bell_window = ${$tree_obj}->ItemStyle('imagetext', -font => $ital_font, -foreground => 'red');
+
+  ${$tree_obj}->delete("all");
+
+  if (defined $session) {
+    my @windows = get_windows($session);
+    if (@windows > 0) {
+      for (my $n = 0; $n < @windows; $n++) {
+        my $name = stringify_window($windows[$n]);
+        if (${$windows[$n]}{'active'} == 0) {
+          if (${$windows[$n]}{'bell'} == 1) {
+            ${$tree_obj}->add("$n", -text => $name, -style => $bell_window);
+          }
+          else {
+            ${$tree_obj}->add("$n", -text => $name, -style => $inactive_window);
+          }
+        }
+        else {
+          ${$tree_obj}->add("$n", -text => $name, -style => $active_window);
+        }
+
+        # Loop through all panes in window
+        my $window_id = ${$windows[$n]}{'index'};
+        my @panes = get_panes($session, $window_id);
+        for (my $p = 0; $p < @panes; $p++) {
+          my $name = stringify_pane($panes[$p]);
+          if (${panes[$p]}{'active'} == 1) {
+            ${$tree_obj}->add("$n.$p", -text => $name, -style => $active_pane);
+          }
+          else {
+            ${$tree_obj}->add("$n.$p", -text => $name, -style => $inactive_pane);
+          }
+        }
+
+        ${$tree_obj}->setmode("$n", 'close');
+      }
+      $status_label->configure( -text => "Last updated: ".localtime() );
+    }
+    else {
+      $status_label->configure( -text => "Error! Could not update! Last attempt: ".localtime() );
+    }
+  }  
+}
+
+### select_cb
+# Callback that is run when you select a pane or window in the combo list.
+# Parameters:
+#   selected:   Indicates path to selected item.
+sub select_cb( $ ) {
+  my ($selected) = @_;
+  $combo_selection = $selected;
+}
+
+### activate_cb
+# Callback that is run when you double-click a pane or window in the combo list.
+# Parameters:
+#   list_obj:   Reference to the combo list tk object.
+#   selected:   Indicates path to selected item.
+sub activate_cb( $$ ) {
+  my ($list_obj, $selected) = @_;
+  my ($window, $pane) = split('\.', $selected);
+
+  my @windows = get_windows($selected_session);
+  my $window_id = ${$windows[$window]}{'index'};
+
+  if (send_to_tmux("select-window -t $window_id") == 0 &&
+      defined $pane) {
+    my @panes = get_panes($selected_session, $window_id);
+    my $pane_id = ${$panes[$pane]}{'index'};
+    send_to_tmux("select-pane -t $pane_id");
+  }
+
+  populate_combined_list($list_obj, $selected_session);
+}
+
+### move_up_cb
+# Callback that moves the window or pane up in the list.
+# Parameters:
+#   list_obj:   Reference to the combo list tk object.
+#   selected:   Indicates the path to the selected item.
+sub move_up_cb( $$ ) {
+  my ($list_obj, $selected) = @_;
+  my ($window, $pane) = split('\.', $selected);
+
+  if (defined $pane) {
+    # Move pane up
+    my @panes = get_panes($selected_session, $window);
+    my $src_pane = ${$panes[$pane]}{'index'};
+    my $dst_pane;
+    if ($pane > 0) {
+      $dst_pane = ${$panes[$pane-1]}{'index'};
+      send_to_tmux("swap-pane -s $pane -t $dst_pane");
+      populate_combined_list($list_obj, $selected_session);
+      $combo_selection = $window.".".($pane - 1);
+      ${$list_obj}->selectionSet($combo_selection);
+    }
+    else {
+      print STDERR "No panes to swap with.\n";
+    }
+  }
+  else {
+    # Move window up
+    # Move window down
+    my @windows = get_windows($selected_session);
+    my $src_window = ${$windows[$window]}{'index'};
+    my $dst_window;
+    if ($window > 0) {
+      $dst_window = ${$windows[$window-1]}{'index'};
+      send_to_tmux("swap-window -s $window -t $dst_window");
+      populate_combined_list($list_obj, $selected_session);
+      $combo_selection = $window - 1;
+      ${$list_obj}->selectionSet($combo_selection);
+    }
+    else {
+      print STDERR "No windows to swap with.\n";
+    }
+  }
+}
+
+### move_down_cb
+# Callback that moves the window or pane down in the list.
+# Parameters:
+#   list_obj:   Reference to the combo list tk object.
+#   selected:   Indicates the path to the selected item.
+sub move_down_cb( $$ ) {
+  my ($list_obj, $selected) = @_;
+  my ($window, $pane) = split('\.', $selected);
+
+  if (defined $pane) {
+    # Move pane down
+    my @panes = get_panes($selected_session, $window);
+    my $src_pane = ${$panes[$pane]}{'index'};
+    my $dst_pane;
+    if (defined $panes[$pane+1]) {
+      $dst_pane = ${$panes[$pane+1]}{'index'};
+      send_to_tmux("swap-pane -s $pane -t $dst_pane");
+      populate_combined_list($list_obj, $selected_session);
+      $combo_selection = $window.".".($pane + 1);
+      ${$list_obj}->selectionSet($combo_selection);
+    }
+    else {
+      print STDERR "No panes to swap with.\n";
+    }
+  }
+  else {
+    # Move window down
+    my @windows = get_windows($selected_session);
+    my $src_window = ${$windows[$window]}{'index'};
+    my $dst_window;
+    if (defined $windows[$window+1]) {
+      $dst_window = ${$windows[$window+1]}{'index'};
+      send_to_tmux("swap-window -s $window -t $dst_window");
+      populate_combined_list($list_obj, $selected_session);
+      $combo_selection = $window + 1;
+      ${$list_obj}->selectionSet($combo_selection);
+    }
+    else {
+      print STDERR "No windows to swap with.\n";
+    }
+  }
+}
+
+### create_win_cb
+# Callback that creates a new window in the current session.
+# Parameters:
+#   list_obj:   Reference to the combo list tk object.
+#   selected:   Indicates path to the selected item, if any.
+sub create_win_cb( $$ ) {
+  my ($list_obj, $selected) = @_;
+  if (defined $selected) {
+    my ($window, $pane) = split('\.', $selected);
+
+    if (defined $pane) {
+      my $name = "temp_".time();
+      my @commands = ("new-window -n $name",
+                      "move-pane -s 0 -t $selected");
+      send_to_tmux(@commands);
+    }
+    else {
+      send_to_tmux("new-window");
+    }
+    populate_combined_list($list_obj, $selected_session);
+  }
+}
+
+### kill_win_pane_cb
+# Callback that kills the currently selected window/pane in the current session.
+# Parameters:
+#   list_obj:   Reference to the combo list tk object.
+#   selected:   Indicates the path to the selected item.
+sub kill_win_pane_cb( $$ ) {
+  my ($list_obj, $selected) = @_;
+  my ($window, $pane) = split('\.', $selected);
+
+  if (defined $pane) {
+    send_to_tmux("kill-pane -t $pane");
+  }
+  else {
+    send_to_tmux("kill-window -t $window");
+  }
+  populate_combined_list($list_obj, $selected_session);
+}
+
+### split_pane_cb
+# Callback that splits the currently selected pane.
+# Paramters:
+#   list_obj:   Reference to the combo list tk object.
+#   selected:   Indicates the path to the selected item.
+sub split_pane_cb( $$ ) {
+  my ($list_obj, $selected) = @_;
+  send_to_tmux("split-window -t $selected");
+  populate_combined_list($list_obj, $selected_session);
+}
+
+### display_panes_cb
+# Callback that displays pane indices of current window in selected session on all
+# attached clients.
+# Parameters:
+#   session:    Clients attached to this session will be told to display pane indices.
+sub display_panes_cb( $ ) {
+  my ($session) = @_;
+  if (defined $session) {
+    my @clients = get_clients($session);
+    foreach my $client (@clients) {
+      my $tty = ${$client}{'tty'};
+      send_to_tmux_no_attach("display-panes", $tty);
+    }
+  }
+}
+########################################################################################
+
+
+
+############################# 
+#                           # 
+# Main program starts here! #
+# _________________________ #
+#         \|\  /|/          #
+#          \|\/|/           #
+#           \||/            #
+#            \/             # 
+#############################
+
+########
+# Main window object
+my $mw = MainWindow->new;
+
+########
+# Top-level widgets
+my $top = $mw->LabFrame( -label => "TMUX Sessions Control", -labelside => "acrosstop" );
+$top->pack( -expand => 1, -fill => "both" );
+
+########
+# Status bar
+my $statusbar = $mw->Frame( -relief => "groove", -borderwidth => 2 );
+$statusbar->pack( -expand => 1, -fill => "x" );
+
+$status_label = $statusbar->Label( -text => "Ipsum Lorem" );
+$status_label->pack( -expand => 1 );
+$status_label->form( -left => [2] );
+
+$top->form( -top => [0], -left => [0], -right => ['%100'], -bottom => ['%100', -26] );
+$statusbar->form( -top => [$top], -bottom => ['%100'], -left => ['&', $top, 2], -right => ['&', $top, -3] );
+
+# Get list of tmux sessions
+my $check_sessions_cb = sub { 
+  if(@{$_[0]} == 0) {
+    $status_label->configure( -text => "No tmux sessions found! Last checked at: ".localtime() );
+  }
+};
+
+my @sessions = init_sessions($check_sessions_cb);
+
+########
+# Sessions widgets
+my $sessions_frame = $top->Frame();
+my $tw_sessions_refresh;
+my $tw_sessions_list;
+my $tw_sessions_select;
+
+my $tw_sessions_label = $sessions_frame->Label( -text => 'Select tmux session:' );
+
+my $refresh_image = $top->Pixmap( -data => $refresh_image_data );
+$tw_sessions_refresh = $sessions_frame->Button(
+  -image => $refresh_image,
+  -command => sub {
+    @sessions = init_sessions($check_sessions_cb);
+    if (@sessions > 0) {
+      $tw_sessions_select->configure( -state => 'normal' );
+    }
+    else {
+      $tw_sessions_select->configure( -state => 'disabled' );
+    }
+    $tw_sessions_list->configure( -options => \@sessions );
+    populate_combined_list(\$tw_tree, $selected_session);
+    &$toggle_buttons();
+  },
+  -width => 22,
+  -height => 22,
+    );
+
+$tw_sessions_list = $sessions_frame->Optionmenu(
+  -options => \@sessions,
+  -variable => \$selected_session,
+    );
+
+$tw_sessions_select = $sessions_frame->Button(
+  -text => 'Select Session',
+  -command => sub { populate_combined_list(\$tw_tree, $selected_session); },
+  -state => (@sessions > 0 ? 'normal' : 'disabled'),
+    );
+
+$tw_sessions_label->pack;
+$tw_sessions_refresh->pack;
+$tw_sessions_list->pack;
+$tw_sessions_select->pack;
+
+$tw_sessions_label->form( -left => ['%3'], -top => [0] );
+$tw_sessions_refresh->form( -left => ['&', $tw_sessions_label], -top => [$tw_sessions_label] );
+$tw_sessions_list->form( -left => [$tw_sessions_refresh], -right => [$tw_sessions_select, -5], -top => [$tw_sessions_label] );
+$tw_sessions_select->form( -top => [$tw_sessions_label, -1], -right => ['%97'] );
+
+
+########
+# Combined windows/panes widgets
+my $combined_frame = $top->Frame();
+my $tw_move_up;
+my $tw_move_down;
+my $tw_create_win_pane;
+my $tw_kill_win_pane;
+my $tw_split_pane;
+my $tw_display_panes;
+
+$toggle_buttons = sub {
+  if (!defined $selected_session) {
+    $tw_create_win_pane->configure( -state => 'disabled' );
+    $tw_display_panes->configure( -state => 'disabled' );
+  }
+  else {
+    $tw_create_win_pane->configure( -state => 'normal' );
+    $tw_display_panes->configure( -state => 'normal' );
+  }
+  if (!defined $_[0]) {
+    $tw_move_up->configure( -state => 'disabled' );
+    $tw_move_down->configure( -state => 'disabled' );
+    $tw_kill_win_pane->configure( -state => 'disabled' );
+    $tw_split_pane->configure( -state => 'disabled' );
+    $combo_selection = undef;
+  }
+  else {
+    my ($window, $pane) = split('\.', $_[0]);
+    $tw_move_up->configure( -state => 'normal' );
+    $tw_move_down->configure( -state => 'normal' );
+    $tw_kill_win_pane->configure( -state => 'normal' );
+    if (defined $pane) {
+      $tw_split_pane->configure( -state => 'normal' );
+    }
+    else {
+      $tw_split_pane->configure( -state => 'disabled' );
+    }
+  }
+};
+
+$tw_tree = $combined_frame->ScrlTree(
+  -browsecmd => sub { 
+    select_cb($_[0]); 
+    &$toggle_buttons($combo_selection);
+  },
+  -command => sub { 
+    activate_cb(\$tw_tree, $_[0]);
+    $combo_selection = undef;
+    &$toggle_buttons($combo_selection);
+  },
+  -width => 70,
+  -height => 10,
+  -indent => 20,
+  -indicator => 1,
+  -selectmode => 'single',
+  -selectbackground => 'White',
+  -scrollbars => "w",
+    );
+$tw_tree->pack;
+
+my $up_image = $top->Pixmap( -data => $up_image_data );
+$tw_move_up = $combined_frame->Button(
+  -command => sub { move_up_cb(\$tw_tree, $combo_selection); },
+  -image => $up_image,
+  -width => 22,
+  -height => 22,
+  -state => 'disabled',
+    );
+$tw_move_up->pack;
+
+my $down_image = $top->Pixmap( -data => $down_image_data );
+$tw_move_down = $combined_frame->Button(
+  -command => sub { move_down_cb(\$tw_tree, $combo_selection); },
+  -image => $down_image,
+  -width => 22,
+  -height => 22,
+  -state => 'disabled',
+    );
+$tw_move_down->pack;
+
+my $create_image = $top->Pixmap( -data => $create_image_data );
+$tw_create_win_pane = $combined_frame->Button(
+  -command => sub { 
+    create_win_cb(\$tw_tree, $combo_selection); 
+    $combo_selection = undef;
+    &$toggle_buttons($combo_selection);
+  },
+  -image => $create_image,
+  -width => 22,
+  -height => 22,
+  -state => (defined $selected_session ? 'normal' : 'disabled'),
+    );
+$tw_create_win_pane->pack;
+
+my $del_image = $top->Pixmap( -data => $del_image_data );
+$tw_kill_win_pane = $combined_frame->Button(
+  -command => sub { 
+    kill_win_pane_cb(\$tw_tree, $combo_selection); 
+    $combo_selection = undef;
+    &$toggle_buttons($combo_selection);
+  },
+  -image => $del_image,
+  -width => 22,
+  -height => 22,
+  -state => 'disabled',
+    );
+$tw_kill_win_pane->pack;
+
+my $split_image = $top->Pixmap( -data => $split_image_data );
+$tw_split_pane = $combined_frame->Button(
+  -command => sub {
+    split_pane_cb(\$tw_tree, $combo_selection);
+    $combo_selection = undef;
+    &$toggle_buttons($combo_selection);
+  },
+  -image => $split_image,
+  -width => 22,
+  -height => 22,
+  -state => 'disabled',
+    );
+$tw_split_pane->pack;
+
+my $display_image = $top->Pixmap( -data => $display_image_data );
+$tw_display_panes = $combined_frame->Button(
+  -command => sub { display_panes_cb($selected_session); }, 
+  -image => $display_image,
+  -width => 22,
+  -height => 22,
+  -state => (defined $selected_session ? 'normal' : 'disabled'),
+    );
+$tw_display_panes->pack;
+
+$tw_tree->form( -left => ['%15'], -right => ['%85'], -top => ['%0'], -bottom => ['%100'] );
+$tw_create_win_pane->form( -left => ['&', $tw_move_up], -top => ['1'] );
+$tw_kill_win_pane->form( -left => ['&', $tw_move_up], -top => [$tw_create_win_pane] );
+$tw_split_pane->form( -left => ['&', $tw_move_up], -top => [$tw_kill_win_pane] );
+$tw_move_up->form( -left => [$tw_tree], -top => [$tw_split_pane, 3] );
+$tw_move_down->form( -left => ['&', $tw_move_up], -top => [$tw_move_up] );
+$tw_display_panes->form( -left => ['&', $tw_move_up], -top => [$tw_move_down, 3] );
+
+populate_combined_list(\$tw_tree, $selected_session);
+
+
+########
+# Top-level layout
+$sessions_frame->pack( -expand => 1, -fill => "both" );
+$combined_frame->pack( -expand => 1, -fill => "both" );
+
+$sessions_frame->form( -top => [0], -left => [0], -right => ['%100'] );
+$combined_frame->form( -top => [$sessions_frame, 10], -left => ['&', $sessions_frame], -right => ['&', $sessions_frame], -bottom => ['%100'] );
+
+
+########
+# Timer events
+
+# Refresh session list every number of minutes indicated by $refresh_int_min.
+my $refresh_evt;
+if ($refresh_int_min > 0) {
+  $refresh_evt = $top->repeat(
+    60000 * $refresh_int_min,
+    sub { 
+      @sessions = init_sessions($check_sessions_cb);
+      if (@sessions > 0) {
+        $tw_sessions_select->configure( -state => 'normal' );
+      }
+      else {
+        $tw_sessions_select->configure( -state => 'disabled' );
+      }
+      $tw_sessions_list->configure( -options => \@sessions );
+      populate_combined_list(\$tw_tree, $selected_session); 
+      &$toggle_buttons();
+    }
+      );
+}
+
+print "Refresh interval (minutes): $refresh_int_min\n";
+
+########
+# Entry into main program
+MainLoop;
+
+# Local Variables:
+# perl-indent-level: 2
+# End:
