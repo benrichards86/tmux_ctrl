@@ -728,7 +728,7 @@ sub display_panes_cb( $ ) {
 
 print <<EOF;
 tmux_ctrl - A GUI control panel for managing local TMUX sessions written in Perl/Tk.
-Copyright (C) 2016  Benjamin D. Richards
+Copyright (C) 2015  Benjamin D. Richards, benjamin.richards86@gmail.com
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
