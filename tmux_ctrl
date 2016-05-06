@@ -47,11 +47,11 @@ my $tw_tree;  # Combined list object for windows/panes.
 my $status_label;  # Label in status bar with timestamp of last update.
 
 my $toggle_buttons;  # Points to method that will set state of buttons next to list according to what's selected.
+my @sessions;  # List of sessions
 
 my $tmux_path = `which tmux`;
 if ($? != 0) {
-  print STDERR "tmux not found! Make sure you have it installed and that it is visible in your path.\n";
-  exit 1;
+  die "*** tmux not found! Make sure you have it installed and that it is visible in your path.\n";
 }
 else {
   chomp $tmux_path;
@@ -483,24 +483,30 @@ sub populate_combined_list( $$ ) {
   my $inactive_pane = ${$tree_obj}->ItemStyle('imagetext', -font => $normal_font);
   my $active_pane = ${$tree_obj}->ItemStyle('imagetext', -font => $ital_font);
   my $bell_window = ${$tree_obj}->ItemStyle('imagetext', -font => $ital_font, -foreground => 'red');
+  my $session_style = ${$tree_obj}->ItemStyle('imagetext', -font => $bold_font);
 
   ${$tree_obj}->delete("all");
 
   if (defined $session) {
+    # Add root node (current session)
+    my $session_name = $sessions[$session][0];
+    ${$tree_obj}->add("0", -text => $session_name, -style => $session_style);
+    
     my @windows = get_windows($session);
     if (@windows > 0) {
+      # Add window categories
       for (my $n = 0; $n < @windows; $n++) {
         my $name = stringify_window($windows[$n]);
         if (${$windows[$n]}{'active'} == 0) {
           if (${$windows[$n]}{'bell'} == 1) {
-            ${$tree_obj}->add("$n", -text => $name, -style => $bell_window);
+            ${$tree_obj}->add("0.$n", -text => $name, -style => $bell_window);
           }
           else {
-            ${$tree_obj}->add("$n", -text => $name, -style => $inactive_window);
+            ${$tree_obj}->add("0.$n", -text => $name, -style => $inactive_window);
           }
         }
         else {
-          ${$tree_obj}->add("$n", -text => $name, -style => $active_window);
+          ${$tree_obj}->add("0.$n", -text => $name, -style => $active_window);
         }
 
         # Loop through all panes in window
@@ -509,14 +515,14 @@ sub populate_combined_list( $$ ) {
         for (my $p = 0; $p < @panes; $p++) {
           my $name = stringify_pane($panes[$p]);
           if (${panes[$p]}{'active'} == 1) {
-            ${$tree_obj}->add("$n.$p", -text => $name, -style => $active_pane);
+            ${$tree_obj}->add("0.$n.$p", -text => $name, -style => $active_pane);
           }
           else {
-            ${$tree_obj}->add("$n.$p", -text => $name, -style => $inactive_pane);
+            ${$tree_obj}->add("0.$n.$p", -text => $name, -style => $inactive_pane);
           }
         }
 
-        ${$tree_obj}->setmode("$n", 'close');
+        ${$tree_obj}->setmode("0.$n", 'close');
       }
       $status_label->configure( -text => "Last updated: ".localtime() );
     }
@@ -542,7 +548,7 @@ sub select_cb( $ ) {
 #   selected:   Indicates path to selected item.
 sub activate_cb( $$ ) {
   my ($list_obj, $selected) = @_;
-  my ($window, $pane) = split('\.', $selected);
+  my ($sess_id, $window, $pane) = split('\.', $selected);
 
   my @windows = get_windows($selected_session);
   my $window_id = ${$windows[$window]}{'index'};
@@ -564,7 +570,7 @@ sub activate_cb( $$ ) {
 #   selected:   Indicates the path to the selected item.
 sub move_up_cb( $$ ) {
   my ($list_obj, $selected) = @_;
-  my ($window, $pane) = split('\.', $selected);
+  my ($sess_id, $window, $pane) = split('\.', $selected);
 
   if (defined $pane) {
     # Move pane up
@@ -608,7 +614,7 @@ sub move_up_cb( $$ ) {
 #   selected:   Indicates the path to the selected item.
 sub move_down_cb( $$ ) {
   my ($list_obj, $selected) = @_;
-  my ($window, $pane) = split('\.', $selected);
+  my ($sess_id, $window, $pane) = split('\.', $selected);
 
   if (defined $pane) {
     # Move pane down
@@ -652,7 +658,7 @@ sub move_down_cb( $$ ) {
 sub create_win_cb( $$ ) {
   my ($list_obj, $selected) = @_;
   if (defined $selected) {
-    my ($window, $pane) = split('\.', $selected);
+    my ($sess_id, $window, $pane) = split('\.', $selected);
 
     if (defined $pane) {
       my $name = "temp_".time();
@@ -674,7 +680,7 @@ sub create_win_cb( $$ ) {
 #   selected:   Indicates the path to the selected item.
 sub kill_win_pane_cb( $$ ) {
   my ($list_obj, $selected) = @_;
-  my ($window, $pane) = split('\.', $selected);
+  my ($sess_id, $window, $pane) = split('\.', $selected);
 
   if (defined $pane) {
     send_to_tmux("kill-pane -t $pane");
@@ -774,7 +780,7 @@ my $check_sessions_cb = sub {
   }
 };
 
-my @sessions = init_sessions($check_sessions_cb);
+@sessions = init_sessions($check_sessions_cb);
 
 ########
 # Sessions widgets
@@ -853,7 +859,7 @@ $toggle_buttons = sub {
     $combo_selection = undef;
   }
   else {
-    my ($window, $pane) = split('\.', $_[0]);
+    my ($sess_id, $window, $pane) = split('\.', $_[0]);
     $tw_move_up->configure( -state => 'normal' );
     $tw_move_down->configure( -state => 'normal' );
     $tw_kill_win_pane->configure( -state => 'normal' );
