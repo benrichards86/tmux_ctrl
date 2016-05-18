@@ -550,17 +550,18 @@ sub activate_cb( $$ ) {
   my ($list_obj, $selected) = @_;
   my ($sess_id, $window, $pane) = split('\.', $selected);
 
-  my @windows = get_windows($selected_session);
-  my $window_id = ${$windows[$window]}{'index'};
-
-  if (send_to_tmux("select-window -t $window_id") == 0 &&
-      defined $pane) {
-    my @panes = get_panes($selected_session, $window_id);
-    my $pane_id = ${$panes[$pane]}{'index'};
-    send_to_tmux("select-pane -t $pane_id");
+  if (defined $window) {
+    my @windows = get_windows($selected_session);
+    my $window_id = ${$windows[$window]}{'index'};
+    
+    if (send_to_tmux("select-window -t $window_id") == 0 &&
+        defined $pane) {
+      my @panes = get_panes($selected_session, $window_id);
+      my $pane_id = ${$panes[$pane]}{'index'};
+      send_to_tmux("select-pane -t $pane_id");
+    }
+    populate_combined_list($list_obj, $selected_session);
   }
-
-  populate_combined_list($list_obj, $selected_session);
 }
 
 ### move_up_cb
@@ -860,14 +861,21 @@ $toggle_buttons = sub {
   }
   else {
     my ($sess_id, $window, $pane) = split('\.', $_[0]);
-    $tw_move_up->configure( -state => 'normal' );
-    $tw_move_down->configure( -state => 'normal' );
-    $tw_kill_win_pane->configure( -state => 'normal' );
-    if (defined $pane) {
-      $tw_split_pane->configure( -state => 'normal' );
+    if (defined $window) {
+      $tw_move_up->configure( -state => 'normal' );
+      $tw_move_down->configure( -state => 'normal' );
+      $tw_kill_win_pane->configure( -state => 'normal' );
+      if (defined $pane) {
+        $tw_split_pane->configure( -state => 'normal' );
+      }
+      else {
+        $tw_split_pane->configure( -state => 'disabled' );
+      }
     }
     else {
-      $tw_split_pane->configure( -state => 'disabled' );
+      $tw_move_up->configure( -state => 'disabled' );
+      $tw_move_down->configure( -state => 'disabled' );
+      $tw_kill_win_pane->configure( -state => 'disabled' );
     }
   }
 };
