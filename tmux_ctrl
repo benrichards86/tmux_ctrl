@@ -1,4 +1,4 @@
-#!/usr/local/bin/perl -w
+#!/usr/bin/perl -w
 # Displays a window allowing GUI control of tmux sessions.
 #
 # tmux_ctrl - A GUI control panel for managing local TMUX sessions written in Perl/Tk.
@@ -45,6 +45,19 @@ my $combo_selection;  # Indicates which window/pane is selected in the combo box
 
 my $tw_tree;  # Combined list object for windows/panes.
 my $status_label;  # Label in status bar with timestamp of last update.
+
+# Fonts and styles
+my $orig_font;
+my $normal_font;
+my $ital_font;
+my $bold_font;
+my $inactive_window;
+my $active_window;
+my $inactive_pane;
+my $active_pane;
+my $bell_window;
+my $session_style;
+
 
 my $toggle_buttons;  # Points to method that will set state of buttons next to list according to what's selected.
 my @sessions;  # List of sessions
@@ -471,20 +484,6 @@ sub stringify_pane( $ ) {
 #   session:     Session to query for windows and panes.
 sub populate_combined_list( $$ ) {
   my ($tree_obj, $session) = @_;
-
-  my $orig_font = ${${$tree_obj}->configure('-font')}[4];
-
-  my $normal_font = $orig_font->Clone(-weight => 'normal', -slant => 'roman');
-  my $ital_font = $orig_font->Clone(-weight => 'normal', -slant => 'italic');
-  my $bold_font = $orig_font->Clone(-weight => 'bold', -slant => 'roman');
-
-  my $inactive_window = ${$tree_obj}->ItemStyle('imagetext', -font => $normal_font);
-  my $active_window = ${$tree_obj}->ItemStyle('imagetext', -font => $bold_font);
-  my $inactive_pane = ${$tree_obj}->ItemStyle('imagetext', -font => $normal_font);
-  my $active_pane = ${$tree_obj}->ItemStyle('imagetext', -font => $ital_font);
-  my $bell_window = ${$tree_obj}->ItemStyle('imagetext', -font => $ital_font, -foreground => 'red');
-  my $session_style = ${$tree_obj}->ItemStyle('imagetext', -font => $bold_font);
-
   ${$tree_obj}->delete("all");
 
   if (defined $session) {
@@ -898,7 +897,20 @@ $tw_tree = $combined_frame->ScrlTree(
   -selectbackground => 'White',
   -scrollbars => "w",
     );
+
+$orig_font = ${$tw_tree->configure('-font')}[4];
+$normal_font = $orig_font->Clone(-weight => 'normal', -slant => 'roman');
+$ital_font = $orig_font->Clone(-weight => 'normal', -slant => 'italic');
+$bold_font = $orig_font->Clone(-weight => 'bold', -slant => 'roman');
+$inactive_window = $tw_tree->ItemStyle('imagetext', -font => $normal_font);
+$active_window = $tw_tree->ItemStyle('imagetext', -font => $bold_font);
+$inactive_pane = $tw_tree->ItemStyle('imagetext', -font => $normal_font);
+$active_pane = $tw_tree->ItemStyle('imagetext', -font => $ital_font);
+$bell_window = $tw_tree->ItemStyle('imagetext', -font => $ital_font, -foreground => 'red');
+$session_style = $tw_tree->ItemStyle('imagetext', -font => $bold_font);
+
 $tw_tree->pack;
+
 
 my $up_image = $top->Pixmap( -data => $up_image_data );
 $tw_move_up = $combined_frame->Button(
