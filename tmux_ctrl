@@ -24,6 +24,7 @@ require Tk::LabFrame;
 require Tk::Tree;
 require Tk::ItemStyle;
 require Tk::Font;
+require Tk::Balloon;
 
 use strict;
 
@@ -810,6 +811,9 @@ $tw_sessions_refresh = $sessions_frame->Button(
   -height => 22,
     );
 
+my $tw_sessions_refresh_tip = $sessions_frame->Balloon();
+$tw_sessions_refresh_tip->attach($tw_sessions_refresh, -balloonmsg => "Refresh list of sessions");
+
 $tw_sessions_list = $sessions_frame->Optionmenu(
   -options => \@sessions,
   -variable => \$selected_session,
@@ -820,6 +824,9 @@ $tw_sessions_select = $sessions_frame->Button(
   -command => sub { populate_combined_list(\$tw_tree, $selected_session); },
   -state => (@sessions > 0 ? 'normal' : 'disabled'),
     );
+
+my $tw_sessions_select_tip = $sessions_frame->Balloon();
+$tw_sessions_select_tip->attach($tw_sessions_select, -balloonmsg => "Click to show session windows and panes below");
 
 $tw_sessions_label->pack;
 $tw_sessions_refresh->pack;
@@ -920,6 +927,8 @@ $tw_move_up = $combined_frame->Button(
   -height => 22,
   -state => 'disabled',
     );
+my $tw_move_up_tip = $combined_frame->Balloon();
+$tw_move_up_tip->attach($tw_move_up, -balloonmsg => "Move up");
 $tw_move_up->pack;
 
 my $down_image = $top->Pixmap( -data => $down_image_data );
@@ -930,6 +939,8 @@ $tw_move_down = $combined_frame->Button(
   -height => 22,
   -state => 'disabled',
     );
+my $tw_move_down_tip = $combined_frame->Balloon();
+$tw_move_down_tip->attach($tw_move_down, -balloonmsg => "Move down");
 $tw_move_down->pack;
 
 my $create_image = $top->Pixmap( -data => $create_image_data );
@@ -944,6 +955,8 @@ $tw_create_win_pane = $combined_frame->Button(
   -height => 22,
   -state => (defined $selected_session ? 'normal' : 'disabled'),
     );
+my $tw_create_win_tip = $combined_frame->Balloon();
+$tw_create_win_tip->attach($tw_create_win_pane, -balloonmsg => "Create new window");
 $tw_create_win_pane->pack;
 
 my $del_image = $top->Pixmap( -data => $del_image_data );
@@ -958,6 +971,8 @@ $tw_kill_win_pane = $combined_frame->Button(
   -height => 22,
   -state => 'disabled',
     );
+my $tw_kill_win_pane_tip = $combined_frame->Balloon();
+$tw_kill_win_pane_tip->attach($tw_kill_win_pane, -balloonmsg => "Kill selected window/pane");
 $tw_kill_win_pane->pack;
 
 my $split_image = $top->Pixmap( -data => $split_image_data );
@@ -972,6 +987,8 @@ $tw_split_pane = $combined_frame->Button(
   -height => 22,
   -state => 'disabled',
     );
+my $tw_split_pane_tip = $combined_frame->Balloon();
+$tw_split_pane_tip->attach($tw_split_pane, -balloonmsg => "Split pane");
 $tw_split_pane->pack;
 
 my $display_image = $top->Pixmap( -data => $display_image_data );
@@ -982,6 +999,8 @@ $tw_display_panes = $combined_frame->Button(
   -height => 22,
   -state => (defined $selected_session ? 'normal' : 'disabled'),
     );
+my $tw_display_panes_tip = $combined_frame->Balloon();
+$tw_display_panes_tip->attach($tw_display_panes, -balloonmsg => "Briefly display pane ID numbers in terminal");
 $tw_display_panes->pack;
 
 $tw_tree->form( -left => ['%15'], -right => ['%85'], -top => ['%0'], -bottom => ['%100'] );
