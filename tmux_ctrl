@@ -489,8 +489,13 @@ sub populate_combined_list( $$ ) {
 
   if (defined $session) {
     # Add root node (current session)
-    my $session_name = $sessions[$session][0];
-    ${$tree_obj}->add("0", -text => $session_name, -style => $session_style);
+    foreach my $curr (@sessions) {
+      if (${$curr}[1] == $session) {
+        my $session_name = ${$curr}[0];
+        ${$tree_obj}->add("0", -text => $session_name, -style => $session_style);
+        last;
+      }
+    }
     
     my @windows = get_windows($session);
     if (@windows > 0) {
